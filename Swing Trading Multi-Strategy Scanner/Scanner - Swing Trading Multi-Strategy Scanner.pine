@@ -1,0 +1,549 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Arun_K_Bhaskar - Modified for Swing Trading
+
+//@version=5
+indicator(title='Swing Trading Multi-Strategy Scanner', shorttitle='Swing Scanner', overlay=true, max_bars_back=500, max_boxes_count=500)
+
+//_____________________________ Menu Scanner Start
+
+g_scrtb = '██████████████████ Scanner ██████████████████'
+
+string i_scr_strategy = input.string(defval='FVG + Trend Combo', title='Strategy', options=['FVG First Touch Confirmed', 'Trend Following Breakout', 'FVG + Trend Combo'], group=g_scrtb)
+
+tt_is = "• Reads only up to first 15 symbols." +
+     "\n• Total characters cannot exceed 4096." +
+     "\n• Optimized for swing trading H4-D1-Weekly"
+
+string i_symbols = input.text_area(
+ defval="BINANCE:BTCUSDT,BINANCE:ETHUSDT,BINANCE:ADAUSDT,BINANCE:DOTUSDT,BINANCE:LINKUSDT,BINANCE:SOLUSDT,BINANCE:AVAXUSDT,BINANCE:MATICUSDT,BINANCE:BNBUSDT,BINANCE:XRPUSDT,BINANCE:LTCUSDT,BINANCE:BCHUSDT,BINANCE:ATOMUSDT,BINANCE:FILUSDT,BINANCE:AAVEUSDT", 
+ title="Paste Symbols", tooltip=tt_is, group=g_scrtb)
+
+bool i_scr_show_table = input.bool(defval=true, title='Display Table', group=g_scrtb)
+bool i_scr_show_long = input.bool(defval=true, title='Long Signals', inline='tb_2', group=g_scrtb)
+bool i_scr_show_short = input.bool(defval=true, title='Short Signals', inline='tb_2', group=g_scrtb)
+
+int i_scr_tbl_disp_rows = input.int(defval=15, title='Display Rows', minval=0, maxval=100, group=g_scrtb)
+string i_scr_tbl_position = input.string(defval=position.bottom_left, title='Table Position', options=[position.top_left, position.top_center, position.top_right, position.middle_left, position.middle_center, position.middle_right, position.bottom_left, position.bottom_center, position.bottom_right], group=g_scrtb)
+string i_scr_tbl_text_size = input.string(defval=size.small, title='Table Size', options=[size.auto, size.tiny, size.small, size.normal, size.large, size.huge], group=g_scrtb)
+
+//_____________________________ Menu Scanner End
+
+//_____________________________ Menu Multi-Timeframe Settings Start
+
+g_mtf = '████████████████ Multi-Timeframe ████████████████'
+
+string i_weekly_tf = input.timeframe(defval='W', title='Weekly Timeframe', tooltip='For trend bias identification', group=g_mtf)
+string i_daily_tf = input.timeframe(defval='D', title='Higher Timeframe', tooltip='Higher timeframe for trend bias confirmation', group=g_mtf)
+string i_h4_tf = input.timeframe(defval='4h', title='H4 Timeframe (unused)', tooltip='Reserved for future use', group=g_mtf)
+
+bool i_mtf_confirm = input.bool(defval=true, title='Require Higher TF Confirmation', tooltip='Current + Higher timeframe must align for signal', group=g_mtf)
+
+//_____________________________ Menu Multi-Timeframe Settings End
+
+//_____________________________ Menu Supertrend (Swing Optimized) Start
+
+g_st = '█████████████████ Supertrend █████████████████'
+
+int i_st_atr_period = input.int(defval=21, title="ATR Length", minval=1, tooltip="Extended for swing trading", group=g_st)
+float i_st_factor = input.float(defval=2.5, title="Factor", minval=0.01, step=0.01, tooltip="Reduced sensitivity for swing", group=g_st)
+
+//_____________________________ Menu Supertrend End
+
+//_____________________________ Menu FVG (Swing Optimized) Start
+
+g_fvg = '███████████████████ FVG ███████████████████'
+
+bool i_fvg_enabled = input.bool(defval=true, title='Enable FVG Detection', group=g_fvg)
+float i_fvg_min_deviation = input.float(defval=80.0, title='Minimal Deviation (%)', minval=50, maxval=200, tooltip='Higher threshold for swing FVGs', group=g_fvg) 
+int i_fvg_max_boxes = input.int(defval=20, title='Max FVG Boxes', minval=5, maxval=100, group=g_fvg)
+bool i_fvg_close_partial = input.bool(defval=true, title='Close FVG Partially', group=g_fvg)
+
+//_____________________________ Menu FVG End
+
+//_____________________________ Menu Risk Management Start
+
+g_rm = '██████████████ Risk Management ██████████████'
+
+bool i_rm_enabled = input.bool(defval=true, title='Show Risk Levels', group=g_rm)
+float i_rm_atr_sl_multi = input.float(defval=2.5, title='Stop Loss ATR Multiplier', minval=1.0, step=0.5, tooltip='For swing SL calculation', group=g_rm)
+float i_rm_atr_tp_multi = input.float(defval=5.0, title='Take Profit ATR Multiplier', minval=2.0, step=0.5, tooltip='For swing TP calculation', group=g_rm)
+float i_rm_min_rr = input.float(defval=2.0, title='Minimum Risk:Reward', minval=1.5, step=0.5, tooltip='Minimum R:R for valid signals', group=g_rm)
+
+//_____________________________ Menu Risk Management End
+
+//_____________________________ Menu Swing Filters Start
+
+g_sf = '████████████████ Swing Filters ████████████████'
+
+bool i_sf_volume_filter = input.bool(defval=true, title='Apply Volume Filter', group=g_sf)
+float i_sf_volume_multi = input.float(defval=1.5, title='Volume Multiplier', minval=1.0, step=0.5, tooltip='Volume vs 20-period SMA', group=g_sf)
+
+bool i_sf_atr_filter = input.bool(defval=true, title='Apply ATR Rising Filter', group=g_sf)
+int i_sf_atr_length = input.int(defval=21, title='ATR Length', minval=10, tooltip='Extended for swing', group=g_sf)
+
+bool i_sf_momentum_filter = input.bool(defval=false, title='Apply Momentum Filter', group=g_sf)
+float i_sf_momentum_thresh = input.float(defval=1.0, title='Min % Change', minval=0.5, step=0.5, tooltip='Minimum price change %', group=g_sf)
+
+//_____________________________ Menu Swing Filters End
+
+//_____________________________ Chart Settings Start
+
+g_ch = '███████████████ Chart Settings ███████████████'
+color i_pos_dark_color = input.color(defval=#03110F, title='Positive Dark', group=g_ch)
+color i_pos_color = input.color(defval=#089981, title='Positive Mid', group=g_ch)
+color i_pos_light_color = input.color(defval=#ACE5DC, title='Positive Light', group=g_ch)
+color i_neg_light_color = input.color(defval=#FCCBCD, title='Negative Light', group=g_ch)
+color i_neg_color = input.color(defval=#F23645, title='Negative Mid', group=g_ch)
+color i_neg_dark_color = input.color(defval=#180809, title='Negative Dark', group=g_ch)
+color i_indicator_color = input.color(defval=#2962FF, title='Indicator', group=g_ch)
+color i_signal_color = input.color(defval=#FB8C00, title='Signal', group=g_ch)
+color i_neu_color = input.color(defval=#9598A1, title='Neutral Light', group=g_ch)
+color i_neu_mid_color = input.color(defval=#2A2E39, title='Neutral Mid', group=g_ch)
+color i_neu_dark_color = input.color(defval=#141516, title='Neutral Dark', group=g_ch)
+
+//_____________________________ Chart Settings End
+
+//_____________________________ Multi-Timeframe Supertrend Start
+
+// Function to get Supertrend data for current timeframe only
+// Note: Multi-timeframe requests removed to avoid security limit
+get_current_supertrend() =>
+    ta.supertrend(i_st_factor, i_st_atr_period)
+
+// Function to get Supertrend direction for higher timeframe
+get_supertrend_direction() =>
+    [_, direction] = ta.supertrend(i_st_factor, i_st_atr_period)
+    direction
+
+// Get Supertrend for current timeframe only
+[current_st, current_dir] = get_current_supertrend()
+
+// For multi-timeframe analysis, use higher timeframe Supertrend direction
+// This is calculated once and applied to trend alignment logic
+[_, higher_tf_trend] = request.security(syminfo.tickerid, i_daily_tf, ta.supertrend(i_st_factor, i_st_atr_period), barmerge.gaps_off, barmerge.lookahead_off)
+
+// Plot Supertrend
+plot(series=current_dir < 0 ? current_st : na, title="Supertrend Up", color=i_pos_color, linewidth=3, style=plot.style_line, force_overlay=true)
+plot(series=current_dir > 0 ? current_st : na, title="Supertrend Down", color=i_neg_color, linewidth=3, style=plot.style_line, force_overlay=true)
+
+//_____________________________ Multi-Timeframe Supertrend End
+
+//_____________________________ FVG Detection (Swing Optimized) Start
+
+// Calculate swing-optimized FVG threshold
+swing_atr = ta.atr(i_sf_atr_length)
+fvg_threshold = swing_atr * (i_fvg_min_deviation / 100)
+
+// FVG Detection (Enhanced from original FVG Scanner)
+is_fvg_up = i_fvg_enabled and (low > high[2]) and (low - high[2] >= fvg_threshold)
+is_fvg_down = i_fvg_enabled and (high < low[2]) and (low[2] - high >= fvg_threshold)
+
+// Store FVG levels
+var fvg_up_top = float(na)
+var fvg_up_bottom = float(na)
+var fvg_down_top = float(na)
+var fvg_down_bottom = float(na)
+
+if is_fvg_up
+    fvg_up_top := low
+    fvg_up_bottom := high[2]
+
+if is_fvg_down
+    fvg_down_top := low[2]
+    fvg_down_bottom := high
+
+// FVG Touch Detection (improved logic)
+fvg_up_first_touch = not na(fvg_up_top) and low <= fvg_up_top and not (low[1] <= fvg_up_top)
+fvg_down_first_touch = not na(fvg_down_top) and high >= fvg_down_bottom and not (high[1] >= fvg_down_bottom)
+
+//_____________________________ FVG Detection End
+
+//_____________________________ Swing ATR and Volatility Start
+
+// Swing-optimized ATR calculation
+swing_atr_sma = ta.sma(swing_atr, 14)
+atr_rising = swing_atr > swing_atr_sma
+
+// Volatility range for breakout detection (Enhanced from Sideways Market Skipper)
+volatility_range = swing_atr * i_rm_atr_sl_multi
+
+var top_range = float(na)
+var bottom_range = float(na)
+
+// Set range when Supertrend changes direction (improved logic)
+supertrend_long_cross = ta.crossover(close, current_st)
+supertrend_short_cross = ta.crossunder(close, current_st)
+
+if supertrend_long_cross and atr_rising
+    top_range := close + volatility_range
+    bottom_range := na
+
+if supertrend_short_cross and atr_rising  
+    bottom_range := close - volatility_range
+    top_range := na
+
+//_____________________________ Swing ATR and Volatility End
+
+//_____________________________ Signal Logic Start
+
+// Multi-timeframe trend alignment (simplified)
+current_bullish = current_dir < 0
+current_bearish = current_dir > 0
+higher_tf_bullish = higher_tf_trend < 0
+higher_tf_bearish = higher_tf_trend > 0
+
+// Trend alignment check (simplified to avoid multiple security calls)
+trend_aligned_bull = i_mtf_confirm ? (current_bullish and higher_tf_bullish) : current_bullish
+trend_aligned_bear = i_mtf_confirm ? (current_bearish and higher_tf_bearish) : current_bearish
+
+// Volume filter
+volume_ok = not i_sf_volume_filter or volume > ta.sma(volume, 20) * i_sf_volume_multi
+
+// ATR rising filter
+atr_ok = not i_sf_atr_filter or atr_rising
+
+// Momentum filter
+momentum_change = math.abs((close - close[1]) / close[1] * 100)
+momentum_ok = not i_sf_momentum_filter or momentum_change >= i_sf_momentum_thresh
+
+// Combined filters
+filters_ok = volume_ok and atr_ok and momentum_ok and barstate.isconfirmed
+
+// FVG First Touch Confirmed Logic (Enhanced from original FVG Scanner)
+var fvg_long_state = 0
+var fvg_short_state = 0
+var fvg_long_trigger_low = float(na)
+var fvg_short_trigger_high = float(na)
+
+// FVG Long Signal (State Machine Logic)
+if is_fvg_up and fvg_long_state == 0 and trend_aligned_bull
+    fvg_long_state := 1
+
+if fvg_up_first_touch and fvg_long_state == 1
+    fvg_long_trigger_low := low
+    fvg_long_state := 2
+
+if ta.crossover(close, fvg_long_trigger_low) and fvg_long_state == 2 and close > open
+    fvg_long_state := 3
+
+fvg_long_confirmed = fvg_long_state == 3
+
+// Reset FVG long state if trend changes
+if not trend_aligned_bull or fvg_long_state == 3
+    fvg_long_state := 0
+    fvg_long_trigger_low := na
+
+// FVG Short Signal (State Machine Logic)  
+if is_fvg_down and fvg_short_state == 0 and trend_aligned_bear
+    fvg_short_state := 1
+
+if fvg_down_first_touch and fvg_short_state == 1
+    fvg_short_trigger_high := high
+    fvg_short_state := 2
+
+if ta.crossunder(close, fvg_short_trigger_high) and fvg_short_state == 2 and close < open
+    fvg_short_state := 3
+
+fvg_short_confirmed = fvg_short_state == 3
+
+// Reset FVG short state if trend changes
+if not trend_aligned_bear or fvg_short_state == 3
+    fvg_short_state := 0
+    fvg_short_trigger_high := na
+
+// Trend Following Breakout Logic (Enhanced from Sideways Market Skipper)
+// State Machine for Trend Following (similar to original scanner)
+var trend_long_state = 0
+var trend_short_state = 0
+
+// Long Trend Following
+if supertrend_long_cross and trend_long_state == 0 and atr_rising
+    trend_long_state := 1
+
+long_breakout_condition = not na(top_range) and close > top_range and open < close and 
+                         atr_rising and volume_ok and momentum_ok
+
+if long_breakout_condition and trend_long_state == 1
+    trend_long_state := 2
+
+trend_long_breakout = trend_long_state == 2
+
+// Reset long trend state
+if trend_long_state == 2
+    trend_long_state := 0
+
+// Short Trend Following  
+if supertrend_short_cross and trend_short_state == 0 and atr_rising
+    trend_short_state := 1
+
+short_breakout_condition = not na(bottom_range) and close < bottom_range and open > close and
+                          atr_rising and volume_ok and momentum_ok
+
+if short_breakout_condition and trend_short_state == 1
+    trend_short_state := 2
+
+trend_short_breakout = trend_short_state == 2
+
+// Reset short trend state
+if trend_short_state == 2
+    trend_short_state := 0
+
+// Combined Strategy Signals
+strategy_long = 
+ i_scr_strategy == 'FVG First Touch Confirmed' ? (fvg_long_confirmed and trend_aligned_bull and filters_ok) :
+ i_scr_strategy == 'Trend Following Breakout' ? (trend_long_breakout and filters_ok) :
+ (fvg_long_confirmed or trend_long_breakout) and trend_aligned_bull and filters_ok
+
+strategy_short = 
+ i_scr_strategy == 'FVG First Touch Confirmed' ? (fvg_short_confirmed and trend_aligned_bear and filters_ok) :
+ i_scr_strategy == 'Trend Following Breakout' ? (trend_short_breakout and filters_ok) :
+ (fvg_short_confirmed or trend_short_breakout) and trend_aligned_bear and filters_ok
+
+//_____________________________ Signal Logic End
+
+//_____________________________ Risk Management Calculation Start
+
+// Calculate dynamic SL and TP based on ATR
+current_atr = ta.atr(i_sf_atr_length)
+sl_distance = current_atr * i_rm_atr_sl_multi
+tp_distance = current_atr * i_rm_atr_tp_multi
+
+// Entry, SL, TP levels
+var entry_price = float(na)
+var stop_loss = float(na)
+var take_profit = float(na)
+var risk_reward = float(na)
+
+if strategy_long
+    entry_price := close
+    stop_loss := entry_price - sl_distance
+    take_profit := entry_price + tp_distance
+    risk_reward := tp_distance / sl_distance
+
+if strategy_short
+    entry_price := close
+    stop_loss := entry_price + sl_distance
+    take_profit := entry_price - tp_distance
+    risk_reward := tp_distance / sl_distance
+
+// Valid signal check (minimum R:R)
+valid_long = strategy_long and risk_reward >= i_rm_min_rr
+valid_short = strategy_short and risk_reward >= i_rm_min_rr
+
+//_____________________________ Risk Management Calculation End
+
+//_____________________________ Plot Signals Start
+
+// Plot signals on chart
+plotshape(series=valid_long ? 1 : na, title='Swing Long', style=shape.triangleup, location=location.belowbar, color=color.new(i_pos_color, 0), size=size.normal, force_overlay=true)
+plotshape(series=valid_short ? 1 : na, title='Swing Short', style=shape.triangledown, location=location.abovebar, color=color.new(i_neg_color, 0), size=size.normal, force_overlay=true)
+
+// Color bars
+barcolor(color=valid_long ? color.new(i_pos_light_color, 70) : valid_short ? color.new(i_neg_light_color, 70) : na, title='Signal Candle')
+
+// Plot risk levels với màu và style khác biệt
+plot(series=i_rm_enabled and not na(stop_loss) ? stop_loss : na, title='Stop Loss', color=color.new(color.red, 20), linewidth=2, style=plot.style_circles, force_overlay=true)
+plot(series=i_rm_enabled and not na(take_profit) ? take_profit : na, title='Take Profit', color=color.new(color.lime, 20), linewidth=2, style=plot.style_circles, force_overlay=true)
+
+// Plot volatility ranges (from Sideways Market Skipper concept)
+plot(series=not na(top_range) ? top_range : na, title='Top Range', color=color.new(i_pos_color, 50), linewidth=1, style=plot.style_stepline, force_overlay=true)
+plot(series=not na(bottom_range) ? bottom_range : na, title='Bottom Range', color=color.new(i_neg_color, 50), linewidth=1, style=plot.style_stepline, force_overlay=true)
+
+//_____________________________ Plot Signals End
+
+//_____________________________ Get Symbols for Scanner Start
+
+feed(back) =>
+    loop = back
+    getT = string(na)
+    if str.length(loop) == 0
+        getT := string(na)
+        loop := string(na)
+    else
+        getP = nz(str.pos(loop, ','), str.length(loop))
+        getT := str.substring(loop, 0, getP)
+        loop := str.replace(loop, getT + ',', '')
+    [getT, loop]
+
+[tid_01, out_01] = feed(i_symbols), [tid_02, out_02] = feed(out_01), [tid_03, out_03] = feed(out_02), [tid_04, out_04] = feed(out_03),
+[tid_05, out_05] = feed(out_04), [tid_06, out_06] = feed(out_05), [tid_07, out_07] = feed(out_06), [tid_08, out_08] = feed(out_07),
+[tid_09, out_09] = feed(out_08), [tid_10, out_10] = feed(out_09), [tid_11, out_11] = feed(out_10), [tid_12, out_12] = feed(out_11),
+[tid_13, out_13] = feed(out_12), [tid_14, out_14] = feed(out_13), [tid_15, out_15] = feed(out_14)
+
+//_____________________________ Get Symbols for Scanner End
+
+//_____________________________ Scanner Function Start
+
+// Scanner calculation function
+indicator_calculation() =>
+    _time = int(na)
+    _entry_price = float(na)
+    _stop_loss = float(na)
+    _take_profit = float(na)
+    _risk_reward = float(na)
+    signal = int(na)
+    _strategy_type = string(na)
+
+    if barstate.isconfirmed
+        if i_scr_show_long and valid_long
+            signal := 1
+            _strategy_type := (strategy_long and fvg_long_confirmed) ? "FVG" : (strategy_long and trend_long_breakout) ? "TF" : "COMBO"
+        else if i_scr_show_short and valid_short
+            signal := -1
+            _strategy_type := (strategy_short and fvg_short_confirmed) ? "FVG" : (strategy_short and trend_short_breakout) ? "TF" : "COMBO"
+
+        if not na(signal)
+            _time := time
+            _entry_price := math.round_to_mintick(close)
+            _stop_loss := math.round_to_mintick(stop_loss)
+            _take_profit := math.round_to_mintick(take_profit)
+            _risk_reward := math.round(risk_reward, 2)
+
+    [_time, _entry_price, _stop_loss, _take_profit, _risk_reward, signal, _strategy_type]
+
+// Format time function
+format_time(x) =>
+    timezone = syminfo.timezone
+    timeframe.isintraday ? str.format_time(x, "HH:mm dd-MM", timezone) : str.format_time(x, "dd-MM-yyyy", timezone)
+
+// Extract symbol function
+symbol(s) => 
+    array.get(str.split(s, ":"), 1)
+
+// Matrix for storing results
+var matrix = matrix.new<string>(0, 8, na)
+
+// Add row to matrix
+mtxFun(symbol, _time, _entry_price, _stop_loss, _take_profit, _risk_reward, signal, _strategy_type) =>
+    matrix.add_row(matrix, 0, array.from(symbol, _time, _entry_price, _stop_loss, _take_profit, _risk_reward, signal, _strategy_type))
+
+// Scanner function
+screener(s) =>
+    sym = ticker.modify(s, syminfo.session)
+    [_time, _entry_price, _stop_loss, _take_profit, _risk_reward, signal, _strategy_type] = request.security(sym, timeframe.period, indicator_calculation())
+
+    if not na(signal) and _time == time
+        symbolName = symbol(s)
+        formattedTime = format_time(_time)
+        strEntry = str.tostring(_entry_price)
+        strSL = str.tostring(_stop_loss)
+        strTP = str.tostring(_take_profit)
+        strRR = str.tostring(_risk_reward)
+        strSignal = str.tostring(signal)
+
+        mtxFun(symbolName, formattedTime, strEntry, strSL, strTP, strRR, strSignal, _strategy_type)
+
+// Execute scanner for all symbols
+screener(tid_01), screener(tid_02), screener(tid_03), screener(tid_04), screener(tid_05), screener(tid_06), screener(tid_07),
+screener(tid_08), screener(tid_09), screener(tid_10), screener(tid_11), screener(tid_12), screener(tid_13), screener(tid_14),
+screener(tid_15)
+
+//_____________________________ Scanner Function End
+
+//_____________________________ Display Table Start
+
+// Limit table rows
+if matrix.rows(matrix) > i_scr_tbl_disp_rows
+    while matrix.rows(matrix) > i_scr_tbl_disp_rows
+        matrix.remove_row(matrix, matrix.rows(matrix) - 1)
+
+// Create display table
+var table scr_tbl = table.new(position=i_scr_tbl_position, columns=8, rows=102, border_width=1)
+
+// Table cell functions
+scr_cell_title(col, row, txt) => 
+    table.cell(scr_tbl, col, row, text=txt, text_color=i_neu_color, text_halign=text.align_center, bgcolor=i_neu_dark_color, text_size=i_scr_tbl_text_size)
+
+scr_cell(col, row, txt, _text_color, _bgcolor) => 
+    table.cell(scr_tbl, col, row, text=txt, text_color=_text_color, text_halign=text.align_left, bgcolor=_bgcolor, text_size=i_scr_tbl_text_size)
+
+// Display table
+if barstate.islast and i_scr_show_table
+    table.clear(scr_tbl, 0, 0, 7, 101)
+
+    // Header
+    scr_cell_title(0, 0, "Swing Trading Scanner - " + i_scr_strategy)
+    table.merge_cells(table_id=scr_tbl, start_column=0, start_row=0, end_column=7, end_row=0)
+    
+    // Column headers
+    scr_cell_title(0, 1, "Symbol")
+    scr_cell_title(1, 1, "Time")
+    scr_cell_title(2, 1, "Entry")
+    scr_cell_title(3, 1, "SL")
+    scr_cell_title(4, 1, "TP") 
+    scr_cell_title(5, 1, "R:R")
+    scr_cell_title(6, 1, "Dir")
+    scr_cell_title(7, 1, "Type")
+
+    j = 2
+    // Populate data rows
+    if matrix.rows(matrix) > 0
+        for i = 0 to matrix.rows(matrix) - 1
+            signal_val = matrix.get(matrix, i, 6)
+            
+            _textcolor = signal_val == "1" ? i_pos_color : signal_val == "-1" ? i_neg_color : i_neu_color
+            _bg_color = signal_val == "1" ? i_pos_dark_color : signal_val == "-1" ? i_neg_dark_color : i_neu_color
+            
+            direction = signal_val == "1" ? "LONG" : "SHORT"
+
+            scr_cell(0, j, matrix.get(matrix, i, 0), _textcolor, _bg_color)  // Symbol
+            scr_cell(1, j, matrix.get(matrix, i, 1), _textcolor, _bg_color)  // Time
+            scr_cell(2, j, matrix.get(matrix, i, 2), _textcolor, _bg_color)  // Entry
+            scr_cell(3, j, matrix.get(matrix, i, 3), _textcolor, _bg_color)  // SL
+            scr_cell(4, j, matrix.get(matrix, i, 4), _textcolor, _bg_color)  // TP
+            scr_cell(5, j, matrix.get(matrix, i, 5), _textcolor, _bg_color)  // R:R
+            scr_cell(6, j, direction, _textcolor, _bg_color)                 // Direction
+            scr_cell(7, j, matrix.get(matrix, i, 7), _textcolor, _bg_color)  // Strategy Type
+
+            j += 1
+
+//_____________________________ Display Table End
+
+//_____________________________ Code End
+
+// ====================================================================================
+// Readme First:
+// 
+// SWING TRADING MULTI-STRATEGY SCANNER
+// 
+// This indicator combines the best elements from ICT FVG and Trend Following strategies,
+// specifically optimized for swing trading on H4, Daily, and Weekly timeframes.
+//
+// KEY FEATURES:
+// 1. Multi-Timeframe Confirmation: Current + Higher timeframe Supertrend alignment
+// 2. FVG First Touch Confirmed: Institutional entry technique
+// 3. Trend Following Breakout: Sideways market skipper logic
+// 4. Built-in Risk Management: Dynamic SL/TP based on ATR
+// 5. Complete Scanner: Shows Entry, SL, TP, and R:R for each signal
+//
+// STRATEGY OPTIONS:
+// - FVG First Touch Confirmed: Pure ICT approach
+// - Trend Following Breakout: Pure trend following 
+// - FVG + Trend Combo: Combined approach (recommended)
+//
+// RISK MANAGEMENT:
+// - Dynamic Stop Loss: 2.5x ATR (adjustable)
+// - Dynamic Take Profit: 5.0x ATR (adjustable) 
+// - Minimum R:R Filter: 2:1 (adjustable)
+//
+// SWING OPTIMIZATIONS:
+// - Extended ATR periods (21 vs 14)
+// - Reduced Supertrend sensitivity (2.5 vs 3.0)
+// - Higher FVG deviation threshold (80% vs 70%)
+// - Volume and momentum filters for quality
+//
+// MULTI-TIMEFRAME:
+// - Simplified to avoid Pine Script security limits
+// - Uses current timeframe + one higher timeframe for confirmation
+// - Configurable timeframe for higher timeframe trend bias
+//
+// USAGE:
+// 1. Set your symbol list (up to 40 symbols)
+// 2. Choose strategy type
+// 3. Configure multi-timeframe settings
+// 4. Adjust risk management parameters
+// 5. Monitor scanner table for signals
+//
+// The scanner provides complete trade setup including entry price, stop loss,
+// take profit, and risk-reward ratio for each detected signal.
+// ====================================================================================
